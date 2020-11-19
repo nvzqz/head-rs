@@ -55,7 +55,7 @@ impl<H, T> HeaderSlice<H, T> {
 
     /// Returns the offset from the base address of a header-slice to the slice.
     #[inline]
-    pub(crate) fn items_offset() -> usize {
+    pub(crate) fn slice_offset() -> usize {
         let dummy = HeaderSliceDummy::<H, T> {
             header: MaybeUninit::uninit(),
             slice: MaybeUninit::uninit(),
