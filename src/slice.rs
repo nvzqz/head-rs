@@ -3,6 +3,9 @@ use core::{
     slice,
 };
 
+#[cfg(feature = "alloc")]
+use alloc::boxed::Box;
+
 /// A dynamically-sized view into a contiguous header and trailing sequence.
 #[repr(C)]
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
@@ -44,7 +47,6 @@ impl<H, T> HeaderSlice<H, T> {
     }
 }
 
-// TODO: `From<Box<H>>` for `Box<HeaderSlice<H, H>>`
 // TODO: `From<Arc<H>>` for `Arc<HeaderSlice<H, H>>`
 // TODO: `From<Rc<H>>`  for `Rc<HeaderSlice<H, H>>`
 
@@ -63,6 +65,23 @@ impl<'a, H> From<&'a mut H> for &'a mut HeaderSlice<H, H> {
     fn from(header: &'a mut H) -> Self {
         // SAFETY: `H` satisfies slice alignment requirement.
         unsafe { HeaderSlice::from_header_unchecked_mut(header) }
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<H> From<Box<H>> for Box<HeaderSlice<H, H>> {
+    #[inline]
+    fn from(header: Box<H>) -> Self {
+        // SAFETY: `H` satisfies slice alignment requirement.
+        unsafe { HeaderSlice::from_boxed_header_unchecked(header) }
+    }
+}
+
+#[cfg(feature = "alloc")]
+impl<H> From<Box<HeaderSlice<H, H>>> for Box<[H]> {
+    #[inline]
+    fn from(hs: Box<HeaderSlice<H, H>>) -> Self {
+        hs.into_full_boxed_slice()
     }
 }
 
@@ -107,6 +126,24 @@ impl<H, T> HeaderSlice<H, T> {
         }
     }
 
+    /// Attempts to create a boxed header-slice from just `header`.
+    ///
+    /// The address of `header` must be at least aligned to `T` because the
+    /// empty slice component must be properly aligned.
+    ///
+    /// If `T` has equal or greater alignment than `H`, unwrapping the returned
+    /// value is a no-op.
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub fn from_boxed_header(header: Box<H>) -> Result<Box<Self>, Box<H>> {
+        if is_header_slice_aligned::<H, T>(&*header) {
+            // SAFETY: `header` satisfies slice alignment requirement.
+            Ok(unsafe { Self::from_boxed_header_unchecked(header) })
+        } else {
+            Err(header)
+        }
+    }
+
     /// Create a shared header-slice from just `header`, without checking its
     /// alignment.
     ///
@@ -129,6 +166,20 @@ impl<H, T> HeaderSlice<H, T> {
     #[inline]
     pub unsafe fn from_header_unchecked_mut(header: &mut H) -> &mut Self {
         &mut *(slice::from_raw_parts_mut(header, 0) as *mut [H] as *mut Self)
+    }
+
+    /// Create a boxed header-slice from just `header`, without checking its
+    /// alignment.
+    ///
+    /// # Safety
+    ///
+    /// The address of `header` must be at least aligned to `T` because the
+    /// empty slice component must be properly aligned.
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub unsafe fn from_boxed_header_unchecked(header: Box<H>) -> Box<Self> {
+        let data = Box::leak(header);
+        Box::from_raw(slice::from_raw_parts_mut(data, 0) as *mut [H] as *mut Self)
     }
 }
 
@@ -161,6 +212,21 @@ impl<H> HeaderSlice<H, H> {
         }
     }
 
+    /// Attempts to create a boxed header-slice from `slice`, using the first
+    /// element as the header.
+    ///
+    /// Returns `None` if `slice` is empty.
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub fn from_full_boxed_slice(slice: Box<[H]>) -> Option<Box<Self>> {
+        if slice.is_empty() {
+            None
+        } else {
+            // SAFETY: `slice` has an element for a header.
+            Some(unsafe { Self::from_full_boxed_slice_unchecked(slice) })
+        }
+    }
+
     /// Creates a shared header-slice from `slice`, using the first element as
     /// the header without checking if it exists.
     ///
@@ -185,6 +251,21 @@ impl<H> HeaderSlice<H, H> {
         &mut *(slice::from_raw_parts_mut(slice.as_mut_ptr(), new_len) as *mut [H] as *mut Self)
     }
 
+    /// Creates a boxed header-slice from `slice`, using the first element as
+    /// the header without checking if it exists.
+    ///
+    /// # Safety
+    ///
+    /// `slice` must be non-empty.
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub unsafe fn from_full_boxed_slice_unchecked(slice: Box<[H]>) -> Box<Self> {
+        let new_len = slice.len().wrapping_sub(1);
+        let data = Box::leak(slice) as *mut [H] as *mut H;
+
+        Box::from_raw(slice::from_raw_parts_mut(data, new_len) as *mut [H] as *mut Self)
+    }
+
     /// Returns the full range of `self` as a single shared slice.
     #[inline]
     pub fn as_full_slice(&self) -> &[H] {
@@ -201,5 +282,15 @@ impl<H> HeaderSlice<H, H> {
         let len = self.slice.len() + 1;
 
         unsafe { slice::from_raw_parts_mut(data, len) }
+    }
+
+    /// Returns the full range of `self` as a single boxed slice.
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub fn into_full_boxed_slice(self: Box<Self>) -> Box<[H]> {
+        let len = self.slice.len() + 1;
+        let data = Box::into_raw(self) as *mut H;
+
+        unsafe { Box::from_raw(slice::from_raw_parts_mut(data, len)) }
     }
 }
