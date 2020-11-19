@@ -23,6 +23,27 @@ struct HeaderSliceDummy<H, T> {
     slice: MaybeUninit<[T; 0]>,
 }
 
+#[repr(C)]
+struct HeaderSliceHeader<H, T> {
+    header: H,
+    // Using `MaybeUninit` to avoid dropck for `T`.
+    slice: MaybeUninit<[T; 0]>,
+}
+
+impl<H, T> HeaderSliceHeader<H, T> {
+    #[inline]
+    fn as_header_slice(&self) -> &HeaderSlice<H, T> {
+        // SAFETY: `header` satisfies slice alignment requirement of `T`.
+        unsafe { HeaderSlice::from_header_unchecked(&self.header) }
+    }
+
+    #[inline]
+    fn as_header_slice_mut(&mut self) -> &mut HeaderSlice<H, T> {
+        // SAFETY: `header` satisfies slice alignment requirement of `T`.
+        unsafe { HeaderSlice::from_header_unchecked_mut(&mut self.header) }
+    }
+}
+
 /// Convenience functions for handling raw memory.
 #[allow(dead_code)]
 impl<H, T> HeaderSlice<H, T> {
@@ -92,6 +113,36 @@ fn is_header_slice_aligned<H, T>(header: *const H) -> bool {
 }
 
 impl<H, T> HeaderSlice<H, T> {
+    /// Returns the result of calling `f` on a shared header-slice starting with
+    /// `header`.
+    #[inline]
+    pub fn with_header<F, R>(header: H, f: F) -> R
+    where
+        F: for<'a> FnOnce(&'a Self) -> R,
+    {
+        let hs = HeaderSliceHeader::<H, T> {
+            header,
+            slice: MaybeUninit::uninit(),
+        };
+
+        f(hs.as_header_slice())
+    }
+
+    /// Returns the result of calling `f` on a mutable header-slice starting
+    /// with `header`.
+    #[inline]
+    pub fn with_header_mut<F, R>(header: H, f: F) -> R
+    where
+        F: for<'a> FnOnce(&'a mut Self) -> R,
+    {
+        let mut hs = HeaderSliceHeader::<H, T> {
+            header,
+            slice: MaybeUninit::uninit(),
+        };
+
+        f(hs.as_header_slice_mut())
+    }
+
     /// Attempts to create a shared header-slice from just `header`.
     ///
     /// The address of `header` must be at least aligned to `T` because the
