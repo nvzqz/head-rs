@@ -98,3 +98,75 @@ impl<H, T> HeaderSlice<H, T> {
         &mut *(slice::from_raw_parts_mut(header, 0) as *mut [H] as *mut Self)
     }
 }
+
+impl<H> HeaderSlice<H, H> {
+    /// Attempts to create a shared header-slice from `slice`, using the first
+    /// element as the header.
+    ///
+    /// Returns `None` if `slice` is empty.
+    #[inline]
+    pub fn from_full_slice(slice: &[H]) -> Option<&Self> {
+        if slice.is_empty() {
+            None
+        } else {
+            // SAFETY: `slice` has an element for a header.
+            Some(unsafe { Self::from_full_slice_unchecked(slice) })
+        }
+    }
+
+    /// Attempts to create a mutable header-slice from `slice`, using the first
+    /// element as the header.
+    ///
+    /// Returns `None` if `slice` is empty.
+    #[inline]
+    pub fn from_full_slice_mut(slice: &mut [H]) -> Option<&mut Self> {
+        if slice.is_empty() {
+            None
+        } else {
+            // SAFETY: `slice` has an element for a header.
+            Some(unsafe { Self::from_full_slice_unchecked_mut(slice) })
+        }
+    }
+
+    /// Creates a shared header-slice from `slice`, using the first element as
+    /// the header without checking if it exists.
+    ///
+    /// # Safety
+    ///
+    /// `slice` must be non-empty.
+    #[inline]
+    pub unsafe fn from_full_slice_unchecked(slice: &[H]) -> &Self {
+        let new_len = slice.len().wrapping_sub(1);
+        &*(slice::from_raw_parts(slice.as_ptr(), new_len) as *const [H] as *const Self)
+    }
+
+    /// Creates a mutable header-slice from `slice`, using the first element as
+    /// the header without checking if it exists.
+    ///
+    /// # Safety
+    ///
+    /// `slice` must be non-empty.
+    #[inline]
+    pub unsafe fn from_full_slice_unchecked_mut(slice: &mut [H]) -> &mut Self {
+        let new_len = slice.len().wrapping_sub(1);
+        &mut *(slice::from_raw_parts_mut(slice.as_mut_ptr(), new_len) as *mut [H] as *mut Self)
+    }
+
+    /// Returns the full range of `self` as a single shared slice.
+    #[inline]
+    pub fn as_full_slice(&self) -> &[H] {
+        let data = self as *const Self as *const H;
+        let len = self.slice.len() + 1;
+
+        unsafe { slice::from_raw_parts(data, len) }
+    }
+
+    /// Returns the full range of `self` as a single mutable slice.
+    #[inline]
+    pub fn as_full_slice_mut(&mut self) -> &mut [H] {
+        let data = self as *mut Self as *mut H;
+        let len = self.slice.len() + 1;
+
+        unsafe { slice::from_raw_parts_mut(data, len) }
+    }
+}
