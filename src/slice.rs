@@ -1,6 +1,6 @@
 use core::{
     mem::{self, MaybeUninit},
-    slice,
+    ptr, slice,
 };
 
 #[cfg(feature = "alloc")]
@@ -153,7 +153,7 @@ impl<H, T> HeaderSlice<H, T> {
     /// empty slice component must be properly aligned.
     #[inline]
     pub unsafe fn from_header_unchecked(header: &H) -> &Self {
-        &*(slice::from_raw_parts(header, 0) as *const [H] as *const Self)
+        Self::from_raw_parts(header, 0)
     }
 
     /// Create a mutable header-slice from just `header`, without checking its
@@ -165,7 +165,7 @@ impl<H, T> HeaderSlice<H, T> {
     /// empty slice component must be properly aligned.
     #[inline]
     pub unsafe fn from_header_unchecked_mut(header: &mut H) -> &mut Self {
-        &mut *(slice::from_raw_parts_mut(header, 0) as *mut [H] as *mut Self)
+        Self::from_raw_parts_mut(header, 0)
     }
 
     /// Create a boxed header-slice from just `header`, without checking its
@@ -178,8 +178,117 @@ impl<H, T> HeaderSlice<H, T> {
     #[cfg(feature = "alloc")]
     #[inline]
     pub unsafe fn from_boxed_header_unchecked(header: Box<H>) -> Box<Self> {
-        let data = Box::leak(header);
-        Box::from_raw(slice::from_raw_parts_mut(data, 0) as *mut [H] as *mut Self)
+        Self::boxed_from_raw_parts(Box::into_raw(header), 0)
+    }
+
+    /// Forms a shared header-slice from a pointer and a length.
+    ///
+    /// # Safety
+    ///
+    /// Behavior is undefined if any of the following conditions are violated:
+    ///
+    /// - `header` and any slice following it must be [valid].
+    ///
+    ///   - `header` must be non-null and aligned to the greater alignment
+    ///     between `H` and `T`.
+    ///
+    ///   - If `len` is non-zero, the slice following `header` must be aligned
+    ///     to `T`.
+    ///
+    ///   - The entire memory range of spanning from the start of `header` to
+    ///     the end of the trailing slice must be contained within a single
+    ///     allocated object! Header-slices can never span across multiple
+    ///     allocated objects.
+    ///
+    /// - The memory referenced by the returned header-slice must not be mutated
+    ///   for the duration of lifetime `'a`, except inside an [`UnsafeCell`].
+    ///
+    /// - The total size of the resulting header-slice must be no larger than
+    ///   `isize::MAX`.
+    ///
+    /// # Caveat
+    ///
+    /// The lifetime for the returned slice is inferred from its usage. To
+    /// prevent accidental misuse, it's suggested to tie the lifetime to
+    /// whichever source lifetime is safe in the context, such as by providing a
+    /// helper function taking the lifetime of a host value for the slice, or by
+    /// explicit annotation.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    /// [`UnsafeCell`]: https://doc.rust-lang.org/std/cell/struct.UnsafeCell.html
+    #[inline]
+    pub unsafe fn from_raw_parts<'a>(header: *const H, len: usize) -> &'a Self {
+        // We never create `&[H]` because data past `header` may refer to
+        // invalid instances of `H`. So instead we strictly use a raw slice
+        // pointer.
+        &*(ptr::slice_from_raw_parts(header, len) as *const Self)
+    }
+
+    /// Forms a mutable header-slice from a pointer and a length.
+    ///
+    /// # Safety
+    ///
+    /// Behavior is undefined if any of the following conditions are violated:
+    ///
+    /// - `header` and any slice following it must be [valid].
+    ///
+    ///   - `header` must be non-null and aligned to the greater alignment
+    ///     between `H` and `T`.
+    ///
+    ///   - If `len` is non-zero, the slice following `header` must be aligned
+    ///     to `T`.
+    ///
+    ///   - The entire memory range of spanning from the start of `header` to
+    ///     the end of the trailing slice must be contained within a single
+    ///     allocated object! Header-slices can never span across multiple
+    ///     allocated objects.
+    ///
+    /// - The memory referenced by the returned header-slice must not be
+    ///   accessed through any other pointer (not derived from the return value)
+    ///   for the duration of lifetime `'a`. Both read and write accesses are
+    ///   forbidden.
+    ///
+    /// - The total size of the resulting header-slice must be no larger than
+    ///   `isize::MAX`.
+    ///
+    /// # Caveat
+    ///
+    /// The lifetime for the returned slice is inferred from its usage. To
+    /// prevent accidental misuse, it's suggested to tie the lifetime to
+    /// whichever source lifetime is safe in the context, such as by providing a
+    /// helper function taking the lifetime of a host value for the slice, or by
+    /// explicit annotation.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    #[inline]
+    pub unsafe fn from_raw_parts_mut<'a>(header: *mut H, len: usize) -> &'a mut Self {
+        // We never create `&mut [H]` because data past `header` may refer to
+        // invalid instances of `H`. So instead we strictly use a raw slice
+        // pointer.
+        &mut *(ptr::slice_from_raw_parts_mut(header, len) as *mut Self)
+    }
+
+    /// Forms a boxed header-slice from a pointer and a length.
+    ///
+    /// # Safety
+    ///
+    /// `header` must point to a header-slice with a slice of `len` items that
+    /// has been allocated by the global allocator.
+    ///
+    /// Improper use can lead to:
+    ///
+    /// - A double-free if the function is called twice on the same raw pointer.
+    ///
+    /// - Mutable aliasing, which causes undefined behavior.
+    ///
+    /// [valid]: https://doc.rust-lang.org/std/ptr/index.html#safety
+    #[cfg(feature = "alloc")]
+    #[inline]
+    pub unsafe fn boxed_from_raw_parts(header: *mut H, len: usize) -> Box<Self> {
+        // We never create `&mut [H]` because data past `header` may refer to
+        // invalid instances of `H`. So instead we strictly use a raw slice
+        // pointer.
+        Box::from_raw(ptr::slice_from_raw_parts_mut(header, len) as *mut Self)
     }
 }
 
@@ -235,8 +344,7 @@ impl<H> HeaderSlice<H, H> {
     /// `slice` must be non-empty.
     #[inline]
     pub unsafe fn from_full_slice_unchecked(slice: &[H]) -> &Self {
-        let new_len = slice.len().wrapping_sub(1);
-        &*(slice::from_raw_parts(slice.as_ptr(), new_len) as *const [H] as *const Self)
+        Self::from_raw_parts(slice.as_ptr(), slice.len().wrapping_sub(1))
     }
 
     /// Creates a mutable header-slice from `slice`, using the first element as
@@ -247,8 +355,7 @@ impl<H> HeaderSlice<H, H> {
     /// `slice` must be non-empty.
     #[inline]
     pub unsafe fn from_full_slice_unchecked_mut(slice: &mut [H]) -> &mut Self {
-        let new_len = slice.len().wrapping_sub(1);
-        &mut *(slice::from_raw_parts_mut(slice.as_mut_ptr(), new_len) as *mut [H] as *mut Self)
+        Self::from_raw_parts_mut(slice.as_mut_ptr(), slice.len().wrapping_sub(1))
     }
 
     /// Creates a boxed header-slice from `slice`, using the first element as
@@ -261,9 +368,9 @@ impl<H> HeaderSlice<H, H> {
     #[inline]
     pub unsafe fn from_full_boxed_slice_unchecked(slice: Box<[H]>) -> Box<Self> {
         let new_len = slice.len().wrapping_sub(1);
-        let data = Box::leak(slice) as *mut [H] as *mut H;
+        let header = Box::into_raw(slice) as *mut H;
 
-        Box::from_raw(slice::from_raw_parts_mut(data, new_len) as *mut [H] as *mut Self)
+        Self::boxed_from_raw_parts(header, new_len)
     }
 
     /// Returns the full range of `self` as a single shared slice.
