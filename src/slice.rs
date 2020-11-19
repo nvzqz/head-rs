@@ -1,4 +1,7 @@
-use core::{mem, slice};
+use core::{
+    mem::{self, MaybeUninit},
+    slice,
+};
 
 /// A dynamically-sized view into a contiguous header and trailing sequence.
 #[repr(C)]
@@ -9,6 +12,30 @@ pub struct HeaderSlice<H, T> {
 
     /// The trailing contiguous sequence of values.
     pub slice: [T],
+}
+
+#[repr(C)]
+struct HeaderSliceDummy<H, T> {
+    header: MaybeUninit<H>,
+    slice: MaybeUninit<[T; 0]>,
+}
+
+/// Convenience functions for handling raw memory.
+#[allow(dead_code)]
+impl<H, T> HeaderSlice<H, T> {
+    /// Returns the offset from the base address of a header-slice to the slice.
+    #[inline]
+    pub(crate) fn items_offset() -> usize {
+        let dummy = HeaderSliceDummy::<H, T> {
+            header: MaybeUninit::uninit(),
+            slice: MaybeUninit::uninit(),
+        };
+
+        let base_addr = &dummy as *const _ as usize;
+        let slice_addr = &dummy.slice as *const _ as usize;
+
+        slice_addr - base_addr
+    }
 }
 
 // TODO: `From<Box<H>>` for `Box<HeaderSlice<H, H>>`
