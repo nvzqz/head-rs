@@ -9,3 +9,7 @@
 //! at your choosing.
 
 #![cfg_attr(not(feature = "std"), no_std)]
+
+mod slice;
+
+pub use slice::HeaderSlice;
