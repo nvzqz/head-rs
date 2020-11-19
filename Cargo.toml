@@ -1,0 +1,18 @@
+[package]
+name = "head"
+version = "0.0.0"
+authors = ["Nikolai Vazquez <hello@nikolaivazquez.com>"]
+edition = "2018"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+description = "Common types with inline headers, such as HeaderVec for Vec."
+repository = "https://github.com/nvzqz/head-rs"
+homepage = "https://github.com/nvzqz/head-rs"
+documentation = "https://docs.rs/head"
+keywords = ["header", "slice", "vec", "buf"]
+categories = ["no-std", "data-structures", "rust-patterns", "embedded"]
+
+[features]
+default = ["std"]
+std = ["alloc"]
+alloc = []
