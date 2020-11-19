@@ -10,11 +10,8 @@ use alloc::boxed::Box;
 #[repr(C)]
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct HeaderSlice<H, T> {
-    /// The value preceding a slice of `T` in memory.
-    pub header: H,
-
-    /// The trailing contiguous sequence of values.
-    pub slice: [T],
+    header: H,
+    slice: [T],
 }
 
 #[repr(C)]
@@ -340,6 +337,46 @@ impl<H, T> HeaderSlice<H, T> {
         // invalid instances of `H`. So instead we strictly use a raw slice
         // pointer.
         Box::from_raw(ptr::slice_from_raw_parts_mut(header, len) as *mut Self)
+    }
+
+    /// Returns a shared reference to the value preceding a slice of `T` in
+    /// memory.
+    #[inline]
+    pub fn as_header(&self) -> &H {
+        &self.header
+    }
+
+    /// Returns a mutable reference to the value preceding a slice of `T` in
+    /// memory.
+    #[inline]
+    pub fn as_header_mut(&mut self) -> &mut H {
+        &mut self.header
+    }
+
+    /// Returns a shared reference to the trailing contiguous sequence of
+    /// values.
+    #[inline]
+    pub fn as_slice(&self) -> &[T] {
+        &self.slice
+    }
+
+    /// Returns a mutable reference to the trailing contiguous sequence of
+    /// values.
+    #[inline]
+    pub fn as_slice_mut(&mut self) -> &mut [T] {
+        &mut self.slice
+    }
+
+    /// Returns shared references to the header and its proceeded slice of `T`.
+    #[inline]
+    pub fn as_header_and_slice(&self) -> (&H, &[T]) {
+        (&self.header, &self.slice)
+    }
+
+    /// Returns mutable references to the header and its proceeded slice of `T`.
+    #[inline]
+    pub fn as_header_and_slice_mut(&mut self) -> (&mut H, &mut [T]) {
+        (&mut self.header, &mut self.slice)
     }
 }
 
