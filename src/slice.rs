@@ -23,6 +23,12 @@ struct HeaderSliceDummy<H, T> {
 /// Convenience functions for handling raw memory.
 #[allow(dead_code)]
 impl<H, T> HeaderSlice<H, T> {
+    /// Returns the alignment for header-slice allocations.
+    #[inline]
+    pub(crate) fn align() -> usize {
+        mem::align_of::<HeaderSliceDummy<H, T>>()
+    }
+
     /// Returns the offset from the base address of a header-slice to the slice.
     #[inline]
     pub(crate) fn items_offset() -> usize {
